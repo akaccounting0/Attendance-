@@ -501,7 +501,9 @@
             padding-top: 5px;
         }
     </style>
-    <!-- Include jsPDF library -->
+    <!-- Include Firebase and jsPDF libraries -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 </head>
@@ -1022,6 +1024,21 @@
     </div>
 
     <script>
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDoeR9jy_gXMYmWG23MdfzQGOLcDP0kVck",
+            authDomain: "attendance-a9da6.firebaseapp.com",
+            databaseURL: "https://attendance-a9da6-default-rtdb.firebaseio.com",
+            projectId: "attendance-a9da6",
+            storageBucket: "attendance-a9da6.firebasestorage.app",
+            messagingSenderId: "890813005769",
+            appId: "1:890813005769:web:77c0d8db4c4df2cf7cb218"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
         // Initialize jsPDF
         const { jsPDF } = window.jspdf;
         
@@ -1157,10 +1174,27 @@
         let currentWorkerReport = null;
         let currentSalaryRecord = null;
         let activeTableId = '';
-        let pin = localStorage.getItem('app_pin') || '';
+        let pin = '';
         
         // Initialize the application
         function init() {
+            // First load the PIN from Firebase
+            loadPin().then(() => {
+                // Then initialize the rest of the app
+                initializeAppAfterPin();
+            });
+        }
+        
+        // Load PIN from Firebase
+        function loadPin() {
+            return database.ref('pin').once('value').then(snapshot => {
+                pin = snapshot.val() || '';
+                updatePinOptionsVisibility();
+            });
+        }
+        
+        // Initialize the rest of the app after PIN is loaded
+        function initializeAppAfterPin() {
             // Populate months
             monthSelect.innerHTML = '<option value="">-- Select Month --</option>';
             months.forEach((month, index) => {
@@ -1272,9 +1306,6 @@
             // Delete Pin Form Events
             confirmDeletePinBtn.addEventListener('click', deletePin);
             cancelDeletePin.addEventListener('click', resetPinForms);
-            
-            // Show/hide pin options based on whether pin exists
-            updatePinOptionsVisibility();
         }
         
         // Show salary record form
@@ -1309,10 +1340,7 @@
         function updateSalaryWorkerDropdown() {
             salaryWorker.innerHTML = '<option value="">-- Select Worker --</option>';
             
-            // Load all workers from localStorage
-            const allWorkers = JSON.parse(localStorage.getItem('workers')) || [];
-            
-            allWorkers.forEach(worker => {
+            workers.forEach(worker => {
                 const option = document.createElement('option');
                 option.value = worker.id;
                 option.textContent = worker.name;
@@ -1405,9 +1433,6 @@
         
         // Get attendance data for a worker
         function getAttendanceDataForWorker(workerId) {
-            // Load attendance records for current year and month
-            const attendanceRecords = JSON.parse(localStorage.getItem(`attendance_${selectedYear}_${selectedMonth}`)) || [];
-            
             // Filter records for this worker
             const workerRecords = attendanceRecords.filter(record => record.workerId === workerId);
             
@@ -1434,51 +1459,62 @@
             };
         }
         
-        // Save salary records to localStorage
+        // Save salary records to Firebase
         function saveSalaryRecords() {
-            localStorage.setItem(`salary_${selectedYear}_${selectedMonth}`, JSON.stringify(salaryRecords));
+            database.ref(`salary/${selectedYear}/${selectedMonth}`).set(salaryRecords)
+                .catch(error => {
+                    console.error("Error saving salary records:", error);
+                    alert("Error saving salary records. Please try again.");
+                });
         }
         
-        // Load salary records from localStorage
+        // Load salary records from Firebase
         function loadSalaryRecords() {
-            salaryRecords = JSON.parse(localStorage.getItem(`salary_${selectedYear}_${selectedMonth}`)) || [];
-            salaryTable.innerHTML = '';
-            
-            salaryRecords.forEach((record, index) => {
-                const row = salaryTable.insertRow();
-                row.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td>${record.workerName}</td>
-                    <td>${record.workerId}</td>
-                    <td>${record.year}-${record.monthName}</td>
-                    <td>${record.totalPresent}</td>
-                    <td>${record.totalAbsent}</td>
-                    <td>${record.totalHoliday}</td>
-                    <td>${record.totalActualWork}</td>
-                    <td>${record.totalOverTime}</td>
-                    <td>${record.finalWorkHours}</td>
-                    <td>${record.holidayBonus}</td>
-                    <td>${record.basicSalary}</td>
-                    <td>${record.netSalary}</td>
-                    <td>${record.previousAdvance}</td>
-                    <td>${record.currentAdvance}</td>
-                    <td>${record.closingBalance}</td>
-                    <td>${record.paymentStatus}</td>
-                    <td>${record.paymentDate ? formatDateForDisplay(record.paymentDate) : '-'}</td>
-                    <td>
-                        <button class="action-btn view-btn">View</button>
-                        <button class="action-btn edit-btn">Edit</button>
-                        <button class="action-btn delete-btn">Delete</button>
-                        <button class="action-btn pdf-btn">PDF</button>
-                    </td>
-                `;
-                
-                // Add event listeners to buttons
-                row.querySelector('.view-btn').addEventListener('click', () => viewSalarySheet(record));
-                row.querySelector('.edit-btn').addEventListener('click', () => editSalaryRecord(record, row));
-                row.querySelector('.delete-btn').addEventListener('click', () => deleteSalaryRecord(record.workerId));
-                row.querySelector('.pdf-btn').addEventListener('click', () => downloadSalaryPdf(record));
-            });
+            database.ref(`salary/${selectedYear}/${selectedMonth}`).once('value')
+                .then(snapshot => {
+                    salaryRecords = snapshot.val() || [];
+                    salaryTable.innerHTML = '';
+                    
+                    salaryRecords.forEach((record, index) => {
+                        const row = salaryTable.insertRow();
+                        row.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td>${record.workerName}</td>
+                            <td>${record.workerId}</td>
+                            <td>${record.year}-${record.monthName}</td>
+                            <td>${record.totalPresent}</td>
+                            <td>${record.totalAbsent}</td>
+                            <td>${record.totalHoliday}</td>
+                            <td>${record.totalActualWork}</td>
+                            <td>${record.totalOverTime}</td>
+                            <td>${record.finalWorkHours}</td>
+                            <td>${record.holidayBonus}</td>
+                            <td>${record.basicSalary}</td>
+                            <td>${record.netSalary}</td>
+                            <td>${record.previousAdvance}</td>
+                            <td>${record.currentAdvance}</td>
+                            <td>${record.closingBalance}</td>
+                            <td>${record.paymentStatus}</td>
+                            <td>${record.paymentDate ? formatDateForDisplay(record.paymentDate) : '-'}</td>
+                            <td>
+                                <button class="action-btn view-btn">View</button>
+                                <button class="action-btn edit-btn">Edit</button>
+                                <button class="action-btn delete-btn">Delete</button>
+                                <button class="action-btn pdf-btn">PDF</button>
+                            </td>
+                        `;
+                        
+                        // Add event listeners to buttons
+                        row.querySelector('.view-btn').addEventListener('click', () => viewSalarySheet(record));
+                        row.querySelector('.edit-btn').addEventListener('click', () => editSalaryRecord(record, row));
+                        row.querySelector('.delete-btn').addEventListener('click', () => deleteSalaryRecord(record.workerId));
+                        row.querySelector('.pdf-btn').addEventListener('click', () => downloadSalaryPdf(record));
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading salary records:", error);
+                    alert("Error loading salary records. Please try again.");
+                });
         }
         
         // View salary sheet
@@ -1741,11 +1777,17 @@
                 return;
             }
             
-            pin = newPin;
-            localStorage.setItem('app_pin', pin);
-            alert('PIN created successfully');
-            closePinManagement();
-            updatePinOptionsVisibility();
+            database.ref('pin').set(newPin)
+                .then(() => {
+                    pin = newPin;
+                    alert('PIN created successfully');
+                    closePinManagement();
+                    updatePinOptionsVisibility();
+                })
+                .catch(error => {
+                    console.error("Error saving PIN:", error);
+                    alert("Error saving PIN. Please try again.");
+                });
         }
         
         // Change existing pin
@@ -1774,10 +1816,16 @@
                 return;
             }
             
-            pin = newPin;
-            localStorage.setItem('app_pin', pin);
-            alert('PIN changed successfully');
-            closePinManagement();
+            database.ref('pin').set(newPin)
+                .then(() => {
+                    pin = newPin;
+                    alert('PIN changed successfully');
+                    closePinManagement();
+                })
+                .catch(error => {
+                    console.error("Error changing PIN:", error);
+                    alert("Error changing PIN. Please try again.");
+                });
         }
         
         // Delete existing pin
@@ -1794,11 +1842,17 @@
                 return;
             }
             
-            pin = '';
-            localStorage.removeItem('app_pin');
-            alert('PIN deleted successfully');
-            closePinManagement();
-            updatePinOptionsVisibility();
+            database.ref('pin').remove()
+                .then(() => {
+                    pin = '';
+                    alert('PIN deleted successfully');
+                    closePinManagement();
+                    updatePinOptionsVisibility();
+                })
+                .catch(error => {
+                    console.error("Error deleting PIN:", error);
+                    alert("Error deleting PIN. Please try again.");
+                });
         }
         
         // Confirm before adding new year
@@ -1816,15 +1870,24 @@
             }
         }
         
-        // Load saved years from localStorage
+        // Load saved years from Firebase
         function loadSavedYears() {
-            const savedYears = JSON.parse(localStorage.getItem('years')) || [];
-            savedYears.forEach(year => {
-                const option = document.createElement('option');
-                option.value = year;
-                option.textContent = year;
-                yearSelect.appendChild(option);
-            });
+            database.ref('years').once('value')
+                .then(snapshot => {
+                    const savedYears = snapshot.val() || [];
+                    yearSelect.innerHTML = '<option value="">-- Select Year --</option>';
+                    
+                    savedYears.forEach(year => {
+                        const option = document.createElement('option');
+                        option.value = year;
+                        option.textContent = year;
+                        yearSelect.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading years:", error);
+                    alert("Error loading years. Please try again.");
+                });
         }
         
         // Add a new year to the selector
@@ -1836,12 +1899,19 @@
             option.selected = true;
             yearSelect.appendChild(option);
             
-            // Save to localStorage
-            const savedYears = JSON.parse(localStorage.getItem('years')) || [];
-            if (!savedYears.includes(newYear)) {
-                savedYears.push(newYear);
-                localStorage.setItem('years', JSON.stringify(savedYears));
-            }
+            // Save to Firebase
+            database.ref('years').once('value')
+                .then(snapshot => {
+                    const savedYears = snapshot.val() || [];
+                    if (!savedYears.includes(newYear)) {
+                        savedYears.push(newYear);
+                        database.ref('years').set(savedYears)
+                            .catch(error => {
+                                console.error("Error saving years:", error);
+                                alert("Error saving years. Please try again.");
+                            });
+                    }
+                });
             
             // Enable month selection
             monthSelect.disabled = false;
@@ -1881,6 +1951,9 @@
             // Set attendance form year and month
             document.getElementById('attendanceYear').value = selectedYear;
             document.getElementById('attendanceMonth').value = months[selectedMonth - 1];
+            
+            // Load attendance records for the selected year and month
+            loadAttendanceRecords();
         }
         
         // Handle back button
@@ -1949,23 +2022,34 @@
             updateSalaryWorkerDropdown();
         }
         
-        // Save workers to localStorage
+        // Save workers to Firebase
         function saveWorkers() {
-            localStorage.setItem('workers', JSON.stringify(workers));
+            database.ref('workers').set(workers)
+                .catch(error => {
+                    console.error("Error saving workers:", error);
+                    alert("Error saving workers. Please try again.");
+                });
         }
         
-        // Load workers from localStorage
+        // Load workers from Firebase
         function loadWorkers() {
-            workers = JSON.parse(localStorage.getItem('workers')) || [];
-            workerTable.innerHTML = '';
-            
-            workers.forEach(worker => {
-                addWorkerToTable(worker);
-            });
-            
-            // Update attendance worker dropdown
-            updateAttendanceWorkerDropdown();
-            updateSalaryWorkerDropdown();
+            database.ref('workers').once('value')
+                .then(snapshot => {
+                    workers = snapshot.val() || [];
+                    workerTable.innerHTML = '';
+                    
+                    workers.forEach(worker => {
+                        addWorkerToTable(worker);
+                    });
+                    
+                    // Update attendance worker dropdown
+                    updateAttendanceWorkerDropdown();
+                    updateSalaryWorkerDropdown();
+                })
+                .catch(error => {
+                    console.error("Error loading workers:", error);
+                    alert("Error loading workers. Please try again.");
+                });
         }
         
         // Add worker to table
@@ -2227,99 +2311,110 @@
             attendanceId.value = '';
         }
         
-        // Save attendance records to localStorage
+        // Save attendance records to Firebase
         function saveAttendanceRecords() {
-            localStorage.setItem(`attendance_${selectedYear}_${selectedMonth}`, JSON.stringify(attendanceRecords));
+            database.ref(`attendance/${selectedYear}/${selectedMonth}`).set(attendanceRecords)
+                .catch(error => {
+                    console.error("Error saving attendance records:", error);
+                    alert("Error saving attendance records. Please try again.");
+                });
         }
         
-        // Load attendance records from localStorage
+        // Load attendance records from Firebase
         function loadAttendanceRecords() {
-            attendanceRecords = JSON.parse(localStorage.getItem(`attendance_${selectedYear}_${selectedMonth}`)) || [];
-            
-            // Clear existing tables and navigation
-            tableNav.innerHTML = '';
-            attendanceTablesContainer.innerHTML = '';
-            
-            // Group records by worker
-            const workersMap = new Map();
-            attendanceRecords.forEach(record => {
-                if (!workersMap.has(record.workerId)) {
-                    workersMap.set(record.workerId, {
-                        name: record.workerName,
-                        id: record.workerId,
-                        records: []
+            database.ref(`attendance/${selectedYear}/${selectedMonth}`).once('value')
+                .then(snapshot => {
+                    attendanceRecords = snapshot.val() || [];
+                    
+                    // Clear existing tables and navigation
+                    tableNav.innerHTML = '';
+                    attendanceTablesContainer.innerHTML = '';
+                    
+                    // Group records by worker
+                    const workersMap = new Map();
+                    attendanceRecords.forEach(record => {
+                        if (!workersMap.has(record.workerId)) {
+                            workersMap.set(record.workerId, {
+                                name: record.workerName,
+                                id: record.workerId,
+                                records: []
+                            });
+                        }
+                        workersMap.get(record.workerId).records.push(record);
                     });
-                }
-                workersMap.get(record.workerId).records.push(record);
-            });
-            
-            // Create tables for each worker
-            let firstTable = true;
-            workersMap.forEach((workerData, workerId) => {
-                const tableId = `table_${workerId}`;
-                
-                // Create navigation button
-                const navBtn = document.createElement('button');
-                navBtn.className = `table-nav-btn ${firstTable ? 'active' : ''}`;
-                navBtn.textContent = `${workerData.name} (${workerData.id})`;
-                navBtn.addEventListener('click', () => showWorkerTable(tableId));
-                tableNav.appendChild(navBtn);
-                
-                // Create table
-                const tableDiv = document.createElement('div');
-                tableDiv.className = `worker-table ${firstTable ? 'active' : ''}`;
-                tableDiv.id = tableId;
-                
-                const table = document.createElement('table');
-                const thead = document.createElement('thead');
-                const tbody = document.createElement('tbody');
-                
-                thead.innerHTML = `
-                    <tr>
-                        <th>No.</th>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Time In</th>
-                        <th>Time Out</th>
-                        <th>Total Hrs</th>
-                        <th>Actions</th>
-                    </tr>
-                `;
-                
-                workerData.records.forEach((record, index) => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${index + 1}</td>
-                        <td>${formatDateForDisplay(record.date)}</td>
-                        <td>${getStatusText(record.status)}</td>
-                        <td>${formatTimeForDisplay(record.timeIn)}</td>
-                        <td>${formatTimeForDisplay(record.timeOut)}</td>
-                        <td>${record.totalWork || '-'}</td>
-                        <td>
-                            <button class="action-btn edit-btn">Edit</button>
-                            <button class="action-btn delete-btn">Delete</button>
-                            <button class="action-btn view-btn">View</button>
-                        </td>
-                    `;
                     
-                    // Add event listeners to edit, delete and view buttons
-                    row.querySelector('.edit-btn').addEventListener('click', () => editAttendance(record));
-                    row.querySelector('.delete-btn').addEventListener('click', () => deleteAttendance(record.date, record.workerId));
-                    row.querySelector('.view-btn').addEventListener('click', () => viewAttendanceReport(record.workerId));
-                    
-                    tbody.appendChild(row);
+                    // Create tables for each worker
+                    let firstTable = true;
+                    workersMap.forEach((workerData, workerId) => {
+                        const tableId = `table_${workerId}`;
+                        
+                        // Create navigation button
+                        const navBtn = document.createElement('button');
+                        navBtn.className = `table-nav-btn ${firstTable ? 'active' : ''}`;
+                        navBtn.textContent = `${workerData.name} (${workerData.id})`;
+                        navBtn.addEventListener('click', () => showWorkerTable(tableId));
+                        tableNav.appendChild(navBtn);
+                        
+                        // Create table
+                        const tableDiv = document.createElement('div');
+                        tableDiv.className = `worker-table ${firstTable ? 'active' : ''}`;
+                        tableDiv.id = tableId;
+                        
+                        const table = document.createElement('table');
+                        const thead = document.createElement('thead');
+                        const tbody = document.createElement('tbody');
+                        
+                        thead.innerHTML = `
+                            <tr>
+                                <th>No.</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Time In</th>
+                                <th>Time Out</th>
+                                <th>Total Hrs</th>
+                                <th>Actions</th>
+                            </tr>
+                        `;
+                        
+                        workerData.records.forEach((record, index) => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${index + 1}</td>
+                                <td>${formatDateForDisplay(record.date)}</td>
+                                <td>${getStatusText(record.status)}</td>
+                                <td>${formatTimeForDisplay(record.timeIn)}</td>
+                                <td>${formatTimeForDisplay(record.timeOut)}</td>
+                                <td>${record.totalWork || '-'}</td>
+                                <td>
+                                    <button class="action-btn edit-btn">Edit</button>
+                                    <button class="action-btn delete-btn">Delete</button>
+                                    <button class="action-btn view-btn">View</button>
+                                </td>
+                            `;
+                            
+                            // Add event listeners to edit, delete and view buttons
+                            row.querySelector('.edit-btn').addEventListener('click', () => editAttendance(record));
+                            row.querySelector('.delete-btn').addEventListener('click', () => deleteAttendance(record.date, record.workerId));
+                            row.querySelector('.view-btn').addEventListener('click', () => viewAttendanceReport(record.workerId));
+                            
+                            tbody.appendChild(row);
+                        });
+                        
+                        table.appendChild(thead);
+                        table.appendChild(tbody);
+                        tableDiv.appendChild(table);
+                        attendanceTablesContainer.appendChild(tableDiv);
+                        
+                        if (firstTable) {
+                            activeTableId = tableId;
+                            firstTable = false;
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading attendance records:", error);
+                    alert("Error loading attendance records. Please try again.");
                 });
-                
-                table.appendChild(thead);
-                table.appendChild(tbody);
-                tableDiv.appendChild(table);
-                attendanceTablesContainer.appendChild(tableDiv);
-                
-                if (firstTable) {
-                    activeTableId = tableId;
-                    firstTable = false;
-                }
-            });
         }
         
         // Show specific worker table
@@ -2410,9 +2505,7 @@
         
         // View attendance report for a worker
         function viewAttendanceReport(workerId) {
-            // Load all workers from localStorage to ensure we find the worker
-            const allWorkers = JSON.parse(localStorage.getItem('workers')) || [];
-            currentWorkerReport = allWorkers.find(w => w.id === workerId);
+            currentWorkerReport = workers.find(w => w.id === workerId);
             
             if (!currentWorkerReport) {
                 alert('Worker not found');
@@ -2622,10 +2715,7 @@
         function updateAttendanceWorkerDropdown() {
             attendanceWorker.innerHTML = '<option value="">-- Select Worker --</option>';
             
-            // Load all workers from localStorage regardless of year
-            const allWorkers = JSON.parse(localStorage.getItem('workers')) || [];
-            
-            allWorkers.forEach(worker => {
+            workers.forEach(worker => {
                 const option = document.createElement('option');
                 option.value = worker.id;
                 option.textContent = worker.name;
